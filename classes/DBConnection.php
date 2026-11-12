@@ -3,6 +3,11 @@ if(!defined('DB_SERVER')){
     require_once(__DIR__ . "/../initialize.php");
 }
 
+// Disable mysqli exception mode in PHP 8.1+ so failed queries return false instead of throwing fatal uncaught exceptions
+if (function_exists('mysqli_report')) {
+    mysqli_report(MYSQLI_REPORT_OFF);
+}
+
 class DBConnection{
     private $host;
     private $username;
@@ -15,6 +20,10 @@ class DBConnection{
     public $connect_error = null;
     
     public function __construct(){
+        if (function_exists('mysqli_report')) {
+            mysqli_report(MYSQLI_REPORT_OFF);
+        }
+
         // PHP 8.x Safe Property Initializations inside constructor
         $this->host     = defined('DB_SERVER') ? DB_SERVER : 'localhost';
         $this->username = defined('DB_USERNAME') ? DB_USERNAME : 'root';
@@ -42,35 +51,40 @@ class DBConnection{
                 $flags |= MYSQLI_CLIENT_SSL;
             }
 
-            $connected = @$this->conn->real_connect(
-                $this->host,
-                $this->username,
-                $this->password,
-                $this->database,
-                $this->port,
-                NULL,
-                $flags
-            );
+            try {
+                $connected = @$this->conn->real_connect(
+                    $this->host,
+                    $this->username,
+                    $this->password,
+                    $this->database,
+                    $this->port,
+                    NULL,
+                    $flags
+                );
 
-            if (!$connected) {
-                // If SSL connection failed on localhost, fallback to standard connection
-                if ($flags & MYSQLI_CLIENT_SSL) {
-                    $this->conn = mysqli_init();
-                    $connected = @$this->conn->real_connect(
-                        $this->host,
-                        $this->username,
-                        $this->password,
-                        $this->database,
-                        $this->port
-                    );
+                if (!$connected) {
+                    // Fallback attempt without SSL just in case local localhost
+                    if ($flags & MYSQLI_CLIENT_SSL) {
+                        $this->conn = mysqli_init();
+                        $connected = @$this->conn->real_connect(
+                            $this->host,
+                            $this->username,
+                            $this->password,
+                            $this->database,
+                            $this->port
+                        );
+                    }
                 }
-            }
 
-            if (!$connected) {
-                $this->connect_error = mysqli_connect_error();
-                error_log("Aiven/MySQL Connection error: " . $this->connect_error);
-            } else {
-                $this->conn->set_charset("utf8mb4");
+                if (!$connected) {
+                    $this->connect_error = mysqli_connect_error();
+                    error_log("Aiven/MySQL Connection error: " . $this->connect_error);
+                } else {
+                    $this->conn->set_charset("utf8mb4");
+                }
+            } catch (Throwable $e) {
+                $this->connect_error = $e->getMessage();
+                error_log("Aiven/MySQL Exception during real_connect: " . $this->connect_error);
             }
         }
     }

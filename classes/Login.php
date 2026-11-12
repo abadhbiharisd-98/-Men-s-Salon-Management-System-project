@@ -18,21 +18,25 @@ class Login extends DBConnection {
 	public function login(){
 		extract($_POST);
 
-		$qry = $this->conn->query("SELECT * from users where username = '$username' and password = md5('$password')");
-		if($qry && $qry instanceof mysqli_result && $qry->num_rows > 0){
-			$res = $qry->fetch_array();
-			if($res['status'] != 1){
-				return json_encode(array('status'=>'notverified'));
-			}
-			foreach($res as $k => $v){
-				if(!is_numeric($k) && $k != 'password'){
-					$this->settings->set_userdata($k,$v);
+		try {
+			$qry = $this->conn->query("SELECT * from users where username = '$username' and password = md5('$password')");
+			if($qry && $qry instanceof mysqli_result && $qry->num_rows > 0){
+				$res = $qry->fetch_array();
+				if($res['status'] != 1){
+					return json_encode(array('status'=>'notverified'));
 				}
+				foreach($res as $k => $v){
+					if(!is_numeric($k) && $k != 'password'){
+						$this->settings->set_userdata($k,$v);
+					}
+				}
+				$this->settings->set_userdata('login_type',1);
+				return json_encode(array('status'=>'success'));
+			}else{
+				return json_encode(array('status'=>'incorrect','last_qry'=>"SELECT * from users where username = '$username' and password = md5('$password') "));
 			}
-			$this->settings->set_userdata('login_type',1);
-			return json_encode(array('status'=>'success'));
-		}else{
-			return json_encode(array('status'=>'incorrect','last_qry'=>"SELECT * from users where username = '$username' and password = md5('$password') "));
+		} catch (Throwable $e) {
+			return json_encode(array('status'=>'failed','error'=>$e->getMessage()));
 		}
 	}
 	public function logout(){
@@ -42,21 +46,25 @@ class Login extends DBConnection {
 	}
 	function clogin(){
 		extract($_POST);
-		$qry = $this->conn->query("SELECT *,concat(lastname,', ',firstname,' ',middlename) as fullname from clients where email = '$email' and `password` = md5('$password') ");
-		if($qry && $qry instanceof mysqli_result && $qry->num_rows > 0){
-			foreach($qry->fetch_array() as $k => $v){
-				$this->settings->set_userdata($k,$v);
+		try {
+			$qry = $this->conn->query("SELECT *,concat(lastname,', ',firstname,' ',middlename) as fullname from clients where email = '$email' and `password` = md5('$password') ");
+			if($qry && $qry instanceof mysqli_result && $qry->num_rows > 0){
+				foreach($qry->fetch_array() as $k => $v){
+					$this->settings->set_userdata($k,$v);
+				}
+				$this->settings->set_userdata('login_type',2);
+				$resp['status'] = 'success';
+			}else{
+				$resp['status'] = 'incorrect';
 			}
-			$this->settings->set_userdata('login_type',2);
-			$resp['status'] = 'success';
-		}else{
-			$resp['status'] = 'incorrect';
+			if($this->conn->error){
+				$resp['status'] = 'failed';
+				$resp['_error'] = $this->conn->error;
+			}
+			return json_encode($resp);
+		} catch (Throwable $e) {
+			return json_encode(array('status'=>'failed','_error'=>$e->getMessage()));
 		}
-		if($this->conn->error){
-			$resp['status'] = 'failed';
-			$resp['_error'] = $this->conn->error;
-		}
-		return json_encode($resp);
 	}
 	public function clogout(){
 		if($this->settings->sess_des()){

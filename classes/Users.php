@@ -23,116 +23,128 @@ Class Users extends DBConnection {
 				return 4;
 			}
 		}
-		$chk_qry = $this->conn->query("SELECT * FROM `users` where username ='{$username}' ".(isset($id) && $id > 0 ? " and id!= '{$id}' " : ""));
-		$chk = ($chk_qry && $chk_qry instanceof mysqli_result) ? $chk_qry->num_rows : 0;
-		if($chk > 0){
-			return 3;
-			exit;
-		}
-		foreach($_POST as $k => $v){
-			if(in_array($k,array('firstname','middlename','lastname','username','type'))){
-				if(!empty($data)) $data .=" , ";
-				$data .= " {$k} = '{$v}' ";
+		try {
+			$chk_qry = $this->conn->query("SELECT * FROM `users` where username ='{$username}' ".(isset($id) && $id > 0 ? " and id!= '{$id}' " : ""));
+			$chk = ($chk_qry && $chk_qry instanceof mysqli_result) ? $chk_qry->num_rows : 0;
+			if($chk > 0){
+				return 3;
+				exit;
 			}
-		}
-		if(!empty($password)){
-			$password = md5($password);
-			if(!empty($data)) $data .=" , ";
-			$data .= " `password` = '{$password}' ";
-		}
-
-		if(empty($id)){
-			$qry = $this->conn->query("INSERT INTO users set {$data}");
-			if($qry){
-				$id = $this->conn->insert_id;
-				$this->settings->set_flashdata('success','User Details successfully saved.');
-				$resp['status'] = 1;
-			}else{
-				$resp['status'] = 2;
-			}
-
-		}else{
-			$qry = $this->conn->query("UPDATE users set $data where id = {$id}");
-			if($qry){
-				$this->settings->set_flashdata('success','User Details successfully updated.');
-				if($id == $this->settings->userdata('id')){
-					foreach($_POST as $k => $v){
-						if($k != 'id'){
-							if(!empty($data)) $data .=" , ";
-							$this->settings->set_userdata($k,$v);
-						}
-					}
-					
+			foreach($_POST as $k => $v){
+				if(in_array($k,array('firstname','middlename','lastname','username','type'))){
+					if(!empty($data)) $data .=" , ";
+					$data .= " {$k} = '{$v}' ";
 				}
-				$resp['status'] = 1;
+			}
+			if(!empty($password)){
+				$password = md5($password);
+				if(!empty($data)) $data .=" , ";
+				$data .= " `password` = '{$password}' ";
+			}
+
+			if(empty($id)){
+				$qry = $this->conn->query("INSERT INTO users set {$data}");
+				if($qry){
+					$id = $this->conn->insert_id;
+					$this->settings->set_flashdata('success','User Details successfully saved.');
+					$resp['status'] = 1;
+				}else{
+					$resp['status'] = 2;
+				}
+
 			}else{
-				$resp['status'] = 2;
+				$qry = $this->conn->query("UPDATE users set $data where id = {$id}");
+				if($qry){
+					$this->settings->set_flashdata('success','User Details successfully updated.');
+					if($id == $this->settings->userdata('id')){
+						foreach($_POST as $k => $v){
+							if($k != 'id'){
+								if(!empty($data)) $data .=" , ";
+								$this->settings->set_userdata($k,$v);
+							}
+						}
+						
+					}
+					$resp['status'] = 1;
+				}else{
+					$resp['status'] = 2;
+				}
+				
 			}
 			
-		}
-		
-		if(isset($_FILES['img']) && $_FILES['img']['tmp_name'] != ''){
-			$fname = 'uploads/avatar-'.$id.'.png';
-			$dir_path = base_app. $fname;
-			$upload = $_FILES['img']['tmp_name'];
-			$type = mime_content_type($upload);
-			$allowed = array('image/png','image/jpeg');
-			if(!in_array($type,$allowed)){
-				$resp['msg'].=" But Image failed to upload due to invalid file type.";
-			}else{
-				$new_height = 200; 
-				$new_width = 200; 
-		
-				list($width, $height) = getimagesize($upload);
-				$t_image = imagecreatetruecolor($new_width, $new_height);
-				imagealphablending( $t_image, false );
-				imagesavealpha( $t_image, true );
-				$gdImg = ($type == 'image/png')? imagecreatefrompng($upload) : imagecreatefromjpeg($upload);
-				imagecopyresampled($t_image, $gdImg, 0, 0, 0, 0, $new_width, $new_height, $width, $height);
-				if($gdImg){
-						if(is_file($dir_path))
-						unlink($dir_path);
-						$uploaded_img = imagepng($t_image,$dir_path);
-						imagedestroy($gdImg);
-						imagedestroy($t_image);
+			if(isset($_FILES['img']) && $_FILES['img']['tmp_name'] != ''){
+				$fname = 'uploads/avatar-'.$id.'.png';
+				$dir_path = base_app. $fname;
+				$upload = $_FILES['img']['tmp_name'];
+				$type = mime_content_type($upload);
+				$allowed = array('image/png','image/jpeg');
+				if(!in_array($type,$allowed)){
+					$resp['msg'].=" But Image failed to upload due to invalid file type.";
 				}else{
-				$resp['msg'].=" But Image failed to upload due to unkown reason.";
+					$new_height = 200; 
+					$new_width = 200; 
+			
+					list($width, $height) = getimagesize($upload);
+					$t_image = imagecreatetruecolor($new_width, $new_height);
+					imagealphablending( $t_image, false );
+					imagesavealpha( $t_image, true );
+					$gdImg = ($type == 'image/png')? imagecreatefrompng($upload) : imagecreatefromjpeg($upload);
+					imagecopyresampled($t_image, $gdImg, 0, 0, 0, 0, $new_width, $new_height, $width, $height);
+					if($gdImg){
+							if(is_file($dir_path))
+							unlink($dir_path);
+							$uploaded_img = imagepng($t_image,$dir_path);
+							imagedestroy($gdImg);
+							imagedestroy($t_image);
+					}else{
+					$resp['msg'].=" But Image failed to upload due to unkown reason.";
+					}
+				}
+				if(isset($uploaded_img)){
+					$this->conn->query("UPDATE users set `avatar` = CONCAT('{$fname}','?v=',unix_timestamp(CURRENT_TIMESTAMP)) where id = '{$id}' ");
+					if($id == $this->settings->userdata('id')){
+							$this->settings->set_userdata('avatar',$fname);
+					}
 				}
 			}
-			if(isset($uploaded_img)){
-				$this->conn->query("UPDATE users set `avatar` = CONCAT('{$fname}','?v=',unix_timestamp(CURRENT_TIMESTAMP)) where id = '{$id}' ");
-				if($id == $this->settings->userdata('id')){
-						$this->settings->set_userdata('avatar',$fname);
-				}
-			}
+			if(isset($resp['msg']))
+			$this->settings->set_flashdata('success',$resp['msg']);
+			return isset($resp['status']) ? $resp['status'] : 1;
+		} catch (Throwable $e) {
+			return 2;
 		}
-		if(isset($resp['msg']))
-		$this->settings->set_flashdata('success',$resp['msg']);
-		return isset($resp['status']) ? $resp['status'] : 1;
 	}
 	public function delete_users(){
 		extract($_POST);
-		$av_qry = $this->conn->query("SELECT avatar FROM users where id = '{$id}'");
-		$avatar = ($av_qry && $av_qry instanceof mysqli_result && $row = $av_qry->fetch_assoc()) ? $row['avatar'] : '';
-		$qry = $this->conn->query("DELETE FROM users where id = $id");
-		if($qry){
-			$avatar = explode("?",$avatar)[0];
-			$this->settings->set_flashdata('success','User Details successfully deleted.');
-			if(!empty($avatar) && is_file(base_app.$avatar))
-				unlink(base_app.$avatar);
-			$resp['status'] = 'success';
-		}else{
+		try {
+			$av_qry = $this->conn->query("SELECT avatar FROM users where id = '{$id}'");
+			$avatar = ($av_qry && $av_qry instanceof mysqli_result && $row = $av_qry->fetch_assoc()) ? $row['avatar'] : '';
+			$qry = $this->conn->query("DELETE FROM users where id = $id");
+			if($qry){
+				$avatar = explode("?",$avatar)[0];
+				$this->settings->set_flashdata('success','User Details successfully deleted.');
+				if(!empty($avatar) && is_file(base_app.$avatar))
+					unlink(base_app.$avatar);
+				$resp['status'] = 'success';
+			}else{
+				$resp['status'] = 'failed';
+			}
+		} catch (Throwable $e) {
 			$resp['status'] = 'failed';
 		}
 		return json_encode($resp);
 	}
 	public function verify_user(){
 		extract($_POST);
-		$update = $this->conn->query("UPDATE `users` set `status` = 1 where id = $id");
-		if($update){
-			$this->settings->set_flashdata('success','User has successfully verified.');
-			$resp['status'] = 'success';
-		}else{
+		try {
+			$update = $this->conn->query("UPDATE `users` set `status` = 1 where id = $id");
+			if($update){
+				$this->settings->set_flashdata('success','User has successfully verified.');
+				$resp['status'] = 'success';
+			}else{
+				$resp['status'] = 'failed';
+			}
+		} catch (Throwable $e) {
 			$resp['status'] = 'failed';
 		}
 		return json_encode($resp);

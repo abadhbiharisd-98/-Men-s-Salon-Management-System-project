@@ -36,25 +36,30 @@ Class Master extends DBConnection {
 		}else{
 			$sql = "UPDATE `service_list` set {$data} where id = '{$id}' ";
 		}
-		$check_qry = $this->conn->query("SELECT * FROM `service_list` where `name`='{$name}' ".($id > 0 ? " and id != '{$id}'" : ""));
-		$check = ($check_qry && $check_qry instanceof mysqli_result) ? $check_qry->num_rows : 0;
-		if($check > 0){
-			$resp['status'] = 'failed';
-			$resp['msg'] = "Service Name Already Exists.";
-		}else{
-			$save = $this->conn->query($sql);
-			if($save){
-				$rid = !empty($id) ? $id : $this->conn->insert_id;
-				$resp['status'] = 'success';
-				if(empty($id))
-					$resp['msg'] = "Service details was successfully added.";
-				else
-					$resp['msg'] = "Service details was successfully updated.";
-			}else{
+		try {
+			$check_qry = $this->conn->query("SELECT * FROM `service_list` where `name`='{$name}' ".($id > 0 ? " and id != '{$id}'" : ""));
+			$check = ($check_qry && $check_qry instanceof mysqli_result) ? $check_qry->num_rows : 0;
+			if($check > 0){
 				$resp['status'] = 'failed';
-				$resp['msg'] = "An error occured.";
-				$resp['err'] = $this->conn->error."[{$sql}]";
+				$resp['msg'] = "Service Name Already Exists.";
+			}else{
+				$save = $this->conn->query($sql);
+				if($save){
+					$rid = !empty($id) ? $id : $this->conn->insert_id;
+					$resp['status'] = 'success';
+					if(empty($id))
+						$resp['msg'] = "Service details was successfully added.";
+					else
+						$resp['msg'] = "Service details was successfully updated.";
+				}else{
+					$resp['status'] = 'failed';
+					$resp['msg'] = "An error occured.";
+					$resp['err'] = $this->conn->error."[{$sql}]";
+				}
 			}
+		} catch (Throwable $e) {
+			$resp['status'] = 'failed';
+			$resp['msg'] = $e->getMessage();
 		}
 		if($resp['status'] =='success')
 		$this->settings->set_flashdata('success',$resp['msg']);
@@ -62,13 +67,18 @@ Class Master extends DBConnection {
 	}
 	function delete_service(){
 		extract($_POST);
-		$del = $this->conn->query("DELETE FROM `service_list` where id = '{$id}'");
-		if($del){
-			$resp['status'] = 'success';
-			$this->settings->set_flashdata('success',"Service has successfully deleted.");
-		}else{
+		try {
+			$del = $this->conn->query("DELETE FROM `service_list` where id = '{$id}'");
+			if($del){
+				$resp['status'] = 'success';
+				$this->settings->set_flashdata('success',"Service has successfully deleted.");
+			}else{
+				$resp['status'] = 'failed';
+				$resp['error'] = $this->conn->error;
+			}
+		} catch (Throwable $e) {
 			$resp['status'] = 'failed';
-			$resp['error'] = $this->conn->error;
+			$resp['error'] = $e->getMessage();
 		}
 		return json_encode($resp);
 
@@ -89,30 +99,35 @@ Class Master extends DBConnection {
 		}else{
 			$sql = "UPDATE `appointment_list` set {$data} where id = '{$id}' ";
 		}
-		$save = $this->conn->query($sql);
-		if($save){
-			$aid = !empty($id) ? $id : $this->conn->insert_id;
-			$resp['status'] = 'success';
-			if(empty($id))
-				$resp['msg'] = "Appointment was successfully submit.";
-			else
-				$resp['msg'] = "Appointment details was successfully updated.";
-			$data = "";
-			if(isset($service_id) && is_array($service_id)){
-				foreach($service_id as $k=> $v){
-					$c = isset($cost[$k]) ? $cost[$k] : 0;
-					if(!empty($data)) $data .= ", ";
-					$data .= "('$aid', '{$v}', '{$c}')";
+		try {
+			$save = $this->conn->query($sql);
+			if($save){
+				$aid = !empty($id) ? $id : $this->conn->insert_id;
+				$resp['status'] = 'success';
+				if(empty($id))
+					$resp['msg'] = "Appointment was successfully submit.";
+				else
+					$resp['msg'] = "Appointment details was successfully updated.";
+				$data = "";
+				if(isset($service_id) && is_array($service_id)){
+					foreach($service_id as $k=> $v){
+						$c = isset($cost[$k]) ? $cost[$k] : 0;
+						if(!empty($data)) $data .= ", ";
+						$data .= "('$aid', '{$v}', '{$c}')";
+					}
 				}
+				if(!empty($data)){
+					$this->conn->query("DELETE FROM `appointment_service` where `appointment_id` = '$aid'");
+					$save = $this->conn->query("INSERT INTO `appointment_service` (`appointment_id`, `service_id`, `cost`) VALUES {$data} ");
+				}
+			}else{
+				$resp['status'] = 'failed';
+				$resp['msg'] = "An error occured.";
+				$resp['err'] = $this->conn->error."[{$sql}]";
 			}
-			if(!empty($data)){
-				$this->conn->query("DELETE FROM `appointment_service` where `appointment_id` = '$aid'");
-				$save = $this->conn->query("INSERT INTO `appointment_service` (`appointment_id`, `service_id`, `cost`) VALUES {$data} ");
-			}
-		}else{
+		} catch (Throwable $e) {
 			$resp['status'] = 'failed';
-			$resp['msg'] = "An error occured.";
-			$resp['err'] = $this->conn->error."[{$sql}]";
+			$resp['msg'] = $e->getMessage();
 		}
 		if($resp['status'] =='success')
 		$this->settings->set_flashdata('success',$resp['msg']);
@@ -120,25 +135,35 @@ Class Master extends DBConnection {
 	}
 	function delete_appointment(){
 		extract($_POST);
-		$del = $this->conn->query("DELETE FROM `appointment_list` where id = '{$id}'");
-		if($del){
-			$resp['status'] = 'success';
-			$this->settings->set_flashdata('success',"Appointment has successfully deleted.");
-		}else{
+		try {
+			$del = $this->conn->query("DELETE FROM `appointment_list` where id = '{$id}'");
+			if($del){
+				$resp['status'] = 'success';
+				$this->settings->set_flashdata('success',"Appointment has successfully deleted.");
+			}else{
+				$resp['status'] = 'failed';
+				$resp['error'] = $this->conn->error;
+			}
+		} catch (Throwable $e) {
 			$resp['status'] = 'failed';
-			$resp['error'] = $this->conn->error;
+			$resp['error'] = $e->getMessage();
 		}
 		return json_encode($resp);
 	}
 	function verify_appointment(){
 		extract($_POST);
-		$update = $this->conn->query("UPDATE `appointment_list` set `status` = 1 where id = '{$id}'");
-		if($update){
-			$resp['status'] = 'success';
-			$this->settings->set_flashdata('success',"Appointment has successfully verified.");
-		}else{
+		try {
+			$update = $this->conn->query("UPDATE `appointment_list` set `status` = 1 where id = '{$id}'");
+			if($update){
+				$resp['status'] = 'success';
+				$this->settings->set_flashdata('success',"Appointment has successfully verified.");
+			}else{
+				$resp['status'] = 'failed';
+				$resp['error'] = $this->conn->error;
+			}
+		} catch (Throwable $e) {
 			$resp['status'] = 'failed';
-			$resp['error'] = $this->conn->error;
+			$resp['error'] = $e->getMessage();
 		}
 		return json_encode($resp);
 	}
