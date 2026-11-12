@@ -22,100 +22,121 @@ $sql_file = __DIR__ . '/database/msms_db.sql';
 $action_msg = '';
 $action_type = '';
 
-// Handle Import or Re-import request
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
-    if (!$conn || $conn->connect_errno) {
-        $action_msg = "Database Connection is not active! Please configure DB environment variables first.";
+function run_database_import($conn, $sql_file, &$action_msg, &$action_type) {
+    if (!file_exists($sql_file)) {
+        $action_msg = "SQL file not found at: {$sql_file}";
         $action_type = "danger";
-    } else {
-        if ($_POST['action'] === 'import' || $_POST['action'] === 'reimport') {
-            if (!file_exists($sql_file)) {
-                $action_msg = "SQL file not found at: {$sql_file}";
-                $action_type = "danger";
-            } else {
-                $sql_content = file_get_contents($sql_file);
-                
-                // Disable foreign key checks for clean import
-                $conn->query("SET FOREIGN_KEY_CHECKS = 0");
-                $conn->query("SET SQL_MODE = 'NO_AUTO_VALUE_ON_ZERO'");
+        return false;
+    }
 
-                if ($_POST['action'] === 'reimport') {
-                    foreach ($expected_tables as $tbl => $desc) {
-                        $conn->query("DROP TABLE IF EXISTS `{$tbl}`");
-                    }
-                }
+    $sql_content = file_get_contents($sql_file);
 
-                // Parse SQL queries safely
-                $queries = array();
-                $lines = explode("\n", $sql_content);
-                $query = '';
+    // Disable foreign key checks and strict zero dates for clean import
+    @$conn->query("SET FOREIGN_KEY_CHECKS = 0");
+    @$conn->query("SET SQL_MODE = 'NO_AUTO_VALUE_ON_ZERO'");
+
+    // Split SQL safely
+    $queries = array();
+    $lines = explode("\n", $sql_content);
+    $query = '';
+    $in_multiline_comment = false;
+
+    foreach ($lines as $line) {
+        $trimmed = trim($line);
+        if ($trimmed === '') continue;
+
+        // Skip single line comments
+        if (substr($trimmed, 0, 2) === '--' || substr($trimmed, 0, 1) === '#') continue;
+
+        // Handle multiline comments
+        if (substr($trimmed, 0, 2) === '/*') {
+            if (strpos($trimmed, '*/') !== false) {
+                continue;
+            }
+            $in_multiline_comment = true;
+            continue;
+        }
+        if ($in_multiline_comment) {
+            if (strpos($trimmed, '*/') !== false) {
                 $in_multiline_comment = false;
+            }
+            continue;
+        }
 
-                foreach ($lines as $line) {
-                    $trimmed = trim($line);
-                    if ($trimmed === '') continue;
+        $query .= $line . "\n";
+        if (substr($trimmed, -1) === ';') {
+            $queries[] = $query;
+            $query = '';
+        }
+    }
 
-                    // Skip single line comments
-                    if (substr($trimmed, 0, 2) === '--' || substr($trimmed, 0, 1) === '#') continue;
+    $executed = 0;
+    $errors = array();
 
-                    // Handle multiline comments
-                    if (substr($trimmed, 0, 2) === '/*') {
-                        if (strpos($trimmed, '*/') !== false) {
-                            continue;
-                        }
-                        $in_multiline_comment = true;
-                        continue;
-                    }
-                    if ($in_multiline_comment) {
-                        if (strpos($trimmed, '*/') !== false) {
-                            $in_multiline_comment = false;
-                        }
-                        continue;
-                    }
+    foreach ($queries as $q) {
+        $q = trim($q);
+        if (empty($q)) continue;
+        try {
+            if (!$conn->query($q)) {
+                $errors[] = $conn->error;
+            } else {
+                $executed++;
+            }
+        } catch (Throwable $e) {
+            $errors[] = $e->getMessage();
+        }
+    }
 
-                    $query .= $line . "\n";
-                    if (substr($trimmed, -1) === ';') {
-                        $queries[] = $query;
-                        $query = '';
-                    }
-                }
+    @$conn->query("SET FOREIGN_KEY_CHECKS = 1");
 
-                $executed = 0;
-                $errors = array();
+    if ($executed > 0) {
+        $action_msg = "Database successfully initialized! {$executed} SQL statements executed. All tables and default admin account are ready.";
+        $action_type = "success";
+        return true;
+    } else {
+        $action_msg = "Import encountered an issue. " . (!empty($errors) ? implode(', ', array_slice($errors, 0, 2)) : '');
+        $action_type = "danger";
+        return false;
+    }
+}
 
-                foreach ($queries as $q) {
-                    $q = trim($q);
-                    if (empty($q)) continue;
-                    if (!$conn->query($q)) {
-                        $errors[] = $conn->error;
-                    } else {
-                        $executed++;
-                    }
-                }
+// Check if tables already exist
+$initial_check = false;
+if ($conn && !$conn->connect_errno) {
+    try {
+        $chk = @$conn->query("SHOW TABLES LIKE 'system_info'");
+        $initial_check = ($chk && $chk->num_rows > 0);
+    } catch (Throwable $e) {
+        $initial_check = false;
+    }
+}
 
-                $conn->query("SET FOREIGN_KEY_CHECKS = 1");
-
-                if (empty($errors)) {
-                    $action_msg = "Database successfully initialized! {$executed} SQL statements executed successfully.";
-                    $action_type = "success";
-                } else {
-                    $action_msg = "Import completed with " . count($errors) . " minor notices. Tables verified below.";
-                    $action_type = "warning";
-                }
+// Auto-run import if tables are missing OR if POST submitted
+if ($conn && !$conn->connect_errno) {
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+        if ($_POST['action'] === 'reimport') {
+            foreach ($expected_tables as $tbl => $desc) {
+                @$conn->query("DROP TABLE IF EXISTS `{$tbl}`");
             }
         }
+        run_database_import($conn, $sql_file, $action_msg, $action_type);
+    } elseif (!$initial_check && !isset($_GET['skip_auto'])) {
+        // Automatic 1-Click Import on first visit!
+        run_database_import($conn, $sql_file, $action_msg, $action_type);
     }
 }
 
 // Fetch SSL Cipher Status if connected
 $ssl_cipher = 'Disabled';
 if ($conn && !$conn->connect_errno) {
-    $ssl_res = @$conn->query("SHOW STATUS LIKE 'Ssl_cipher'");
-    if ($ssl_res && $row = $ssl_res->fetch_assoc()) {
-        if (!empty($row['Value'])) {
-            $ssl_cipher = $row['Value'];
+    try {
+        $ssl_res = @$conn->query("SHOW STATUS LIKE 'Ssl_cipher'");
+        if ($ssl_res && $row = $ssl_res->fetch_assoc()) {
+            if (!empty($row['Value'])) {
+                $ssl_cipher = $row['Value'];
+            }
         }
-    }
+    } catch (Throwable $e) {}
 }
 
 // Fetch Table Status
@@ -125,15 +146,20 @@ $admin_exists = false;
 
 if ($conn && !$conn->connect_errno) {
     foreach ($expected_tables as $tbl => $desc) {
-        $check = @$conn->query("SHOW TABLES LIKE '{$tbl}'");
-        $exists = ($check && $check->num_rows > 0);
+        $exists = false;
         $count = 0;
-        if ($exists) {
-            $cnt_q = @$conn->query("SELECT COUNT(*) as cnt FROM `{$tbl}`");
-            if ($cnt_q && $r = $cnt_q->fetch_assoc()) {
-                $count = (int)$r['cnt'];
+        try {
+            $check = @$conn->query("SHOW TABLES LIKE '{$tbl}'");
+            $exists = ($check && $check->num_rows > 0);
+            if ($exists) {
+                $cnt_q = @$conn->query("SELECT COUNT(*) as cnt FROM `{$tbl}`");
+                if ($cnt_q && $r = $cnt_q->fetch_assoc()) {
+                    $count = (int)$r['cnt'];
+                }
+            } else {
+                $all_tables_exist = false;
             }
-        } else {
+        } catch (Throwable $e) {
             $all_tables_exist = false;
         }
         $table_status[$tbl] = array(
@@ -144,10 +170,12 @@ if ($conn && !$conn->connect_errno) {
     }
 
     if ($table_status['users']['exists']) {
-        $adm_q = @$conn->query("SELECT id, username, type, status FROM `users` WHERE username = 'admin' LIMIT 1");
-        if ($adm_q && $adm_q->num_rows > 0) {
-            $admin_exists = true;
-        }
+        try {
+            $adm_q = @$conn->query("SELECT id, username, type, status FROM `users` WHERE username = 'admin' LIMIT 1");
+            if ($adm_q && $adm_q->num_rows > 0) {
+                $admin_exists = true;
+            }
+        } catch (Throwable $e) {}
     }
 }
 ?>
@@ -364,7 +392,7 @@ if ($conn && !$conn->connect_errno) {
                     <?php if (!$all_tables_exist): ?>
                         <form method="POST" style="display:inline-block;">
                             <input type="hidden" name="action" value="import">
-                            <button type="submit" class="btn btn-primary btn-lg px-4 font-weight-bold">
+                            <button type="submit" class="btn btn-primary btn-lg px-4 font-weight-bold shadow">
                                 <i class="fas fa-cloud-upload-alt mr-2"></i> 1-Click Import Database (msms_db.sql)
                             </button>
                         </form>
@@ -382,7 +410,7 @@ if ($conn && !$conn->connect_errno) {
                     <a href="<?php echo base_url; ?>index.php" class="btn btn-outline-light mr-2">
                         <i class="fas fa-globe mr-1"></i> Go to Website
                     </a>
-                    <a href="<?php echo base_url; ?>admin/login.php" class="btn btn-success btn-lg px-4 font-weight-bold">
+                    <a href="<?php echo base_url; ?>admin/login.php" class="btn btn-success btn-lg px-4 font-weight-bold shadow">
                         <i class="fas fa-sign-in-alt mr-2"></i> Admin Login
                     </a>
                 </div>
@@ -400,4 +428,3 @@ if ($conn && !$conn->connect_errno) {
 <script src="<?php echo base_url ?>plugins/bootstrap/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
-
