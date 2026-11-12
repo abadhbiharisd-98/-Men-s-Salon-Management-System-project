@@ -136,3 +136,4 @@ Configure these variables in your **Render Service Dashboard** (`Environment` ta
 
 ## 🛡️ Original File Backups
 As per safety protocols, all original source files modified during containerization have been preserved with `.original` extensions in their respective directories (e.g., `initialize.php.original`, `classes/DBConnection.php.original`, etc.).
+

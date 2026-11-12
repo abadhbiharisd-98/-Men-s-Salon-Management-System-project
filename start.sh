@@ -31,3 +31,4 @@ chmod -R 775 /var/www/html/uploads
 
 echo "Apache configured successfully. Executing apache2-foreground..."
 exec apache2-foreground
+
